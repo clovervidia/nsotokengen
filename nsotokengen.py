@@ -1,85 +1,105 @@
 #! /usr/bin/env python3
 # clovervidia
 import aiohttp.web
-import config
 import frida
 import json
 import logging
 import shutil
 import subprocess
-import sys
 import time
 
 routes = aiohttp.web.RouteTableDef()
 
 expected_payload_keys = {"timestamp", "request_id", "hash_method", "token"}
 
-# Check for adb on the PATH
-if not shutil.which("adb"):
-    print("Couldn't find adb executable. Is it installed and in your PATH?")
-    sys.exit(1)
+script = None
 
-# Connect to the Android device using adb
-print("Connecting to the Android device using adb...")
-subprocess.call(["adb", "connect", f'{config.settings["android_device_ip"]}:{config.settings["android_device_port"]}'])
 
-# Locate the Android device. If it's connected to adb, it will appear as a USB device to Frida.
-print("Searching for Android device...")
-frida.enumerate_devices()
-time.sleep(1)
-try:
-    device = frida.get_usb_device()
-except frida.InvalidArgumentError:
-    print("Couldn't find the Android device. Is it connected to adb? Double-check the IP address in config.json.")
-    sys.exit(1)
-print(f"Located Android device at {device.id}.")
+def setup():
+    # Make sure setup isn't run twice
+    global script
+    if script:
+        pass
 
-# Get the PID of the NSO app if it's running, or launch it if it isn't
-print("Launching NSO app...")
-try:
-    process = device.get_process("Nintendo Switch Online")
-    pid = process.pid
-except frida.ProcessNotFoundError:
+    # Check for adb on the PATH
+    if not shutil.which("adb"):
+        raise RuntimeError("Couldn't find adb executable. Is it installed and in your PATH?")
+
+    # Connect to the Android device using adb
+    logging.info("Connecting to the Android device using adb...")
+    output = subprocess.run(["adb", "connect", f'{settings["android_device_ip"]}:{settings["android_device_port"]}'],
+                            capture_output=True, text=True)
+    if "connected" not in output.stdout:
+        raise RuntimeError("Couldn't connect to the Android device. Double-check the IP address in config.json.")
+    logging.info("Connected.")
+
+    # Locate the Android device. If it's connected to adb, it will appear as a USB device to Frida.
+    logging.info("Searching for Android device...")
+    frida.enumerate_devices()
+    time.sleep(1)
     try:
-        pid = device.spawn(["com.nintendo.znca"])
-        device.resume(pid)
-    except frida.NotSupportedError:
-        print("Couldn't connect to the Frida server on the Android device. Is it running?")
-        sys.exit(1)
-print("NSO app launched.")
+        device = frida.get_usb_device()
+    except frida.InvalidArgumentError:
+        raise RuntimeError("Couldn't find the Android device. Is it connected to adb? Double-check the IP address in"
+                           "config.json.")
+    logging.info(f"Located Android device at {device.id}.")
 
-# Attach to the NSO app and export functions from Frida that provide access to those two libvoip functions
-try:
-    session = device.attach(pid)
-except frida.ServerNotRunningError:
-    print("Couldn't connect to the Frida server on the Android device. Is it running?")
-    sys.exit(1)
+    # Get the PID of the NSO app if it's running, or launch it if it isn't
+    logging.info("Launching NSO app...")
+    try:
+        process = device.get_process("Nintendo Switch Online")
+        pid = process.pid
+    except frida.ProcessNotFoundError:
+        try:
+            pid = device.spawn(["com.nintendo.znca"])
+            device.resume(pid)
+        except frida.NotSupportedError:
+            raise RuntimeError("Couldn't connect to the Frida server on the Android device. Is it running?")
+    logging.info("NSO app launched.")
 
-script = session.create_script("""
-rpc.exports = {
-    genAudioH(token, timestamp, uuid) => {
-        return new Promise(resolve => {
-            Java.perform(() => {
-                const libvoipjni = Java.use("com.nintendo.coral.core.services.voip.LibvoipJni");
-                var context = Java.use("android.app.ActivityThread").currentApplication().getApplicationContext();
-                libvoipjni.init(context);
-                resolve(libvoipjni.genAudioH(token, timestamp, uuid));
+    # Attach to the NSO app and export functions from Frida that provide access to those two libvoip functions
+    try:
+        session = device.attach(pid)
+    except frida.ServerNotRunningError:
+        raise RuntimeError("Couldn't connect to the Frida server on the Android device. Is it running?")
+
+    script = session.create_script("""
+    rpc.exports = {
+        genAudioH(token, timestamp, uuid) => {
+            return new Promise(resolve => {
+                Java.perform(() => {
+                    const libvoipjni = Java.use("com.nintendo.coral.core.services.voip.LibvoipJni");
+                    var context = Java.use("android.app.ActivityThread").currentApplication().getApplicationContext();
+                    libvoipjni.init(context);
+                    resolve(libvoipjni.genAudioH(token, timestamp, uuid));
+                });
             });
-        });
-    },
-    genAudioH2(token, timestamp, uuid) => {
-        return new Promise(resolve => {
-            Java.perform(() => {
-                const libvoipjni = Java.use("com.nintendo.coral.core.services.voip.LibvoipJni");
-                var context = Java.use("android.app.ActivityThread").currentApplication().getApplicationContext();
-                libvoipjni.init(context);
-                resolve(libvoipjni.genAudioH2(token, timestamp, uuid));
+        },
+        genAudioH2(token, timestamp, uuid) => {
+            return new Promise(resolve => {
+                Java.perform(() => {
+                    const libvoipjni = Java.use("com.nintendo.coral.core.services.voip.LibvoipJni");
+                    var context = Java.use("android.app.ActivityThread").currentApplication().getApplicationContext();
+                    libvoipjni.init(context);
+                    resolve(libvoipjni.genAudioH2(token, timestamp, uuid));
+                });
             });
-        });
+        }
     }
-}
-""")
-script.load()
+    """)
+    script.load()
+
+
+def gen_audio_h(token: str, timestamp: str, uuid: str) -> str:
+    if not script:
+        raise RuntimeError("Run setup() to connect to the Android device before attempting to generate tokens")
+    return script.exports.gen_audio_h(str(token), str(timestamp), str(uuid))
+
+
+def gen_audio_h2(token: str, timestamp: str, uuid: str) -> str:
+    if not script:
+        raise RuntimeError("Run setup() to connect to the Android device before attempting to generate tokens")
+    return script.exports.gen_audio_h2(str(token), str(timestamp), str(uuid))
 
 
 @routes.post("/f")
@@ -122,14 +142,19 @@ async def generate_f_token(request: aiohttp.web.Request):
     # If everything else checked out, call the appropriate exported function from Frida
     if payload["hash_method"] == "1":
         return aiohttp.web.json_response(
-            {"f": script.exports.gen_audio_h(payload["token"], payload["timestamp"], payload["request_id"])})
+            {"f": gen_audio_h(payload["token"], payload["timestamp"], payload["request_id"])})
     else:
         return aiohttp.web.json_response(
-            {"f": script.exports.gen_audio_h2(payload["token"], payload["timestamp"], payload["request_id"])})
+            {"f": gen_audio_h2(payload["token"], payload["timestamp"], payload["request_id"])})
 
 
 if __name__ == "__main__":
+    from config import settings
+
+    logging.basicConfig(level=logging.INFO)
+    setup()
     app = aiohttp.web.Application()
     app.add_routes(routes)
-    logging.basicConfig(level=logging.DEBUG)
-    aiohttp.web.run_app(app, port=config.settings["web_server_port"])
+    aiohttp.web.run_app(app, port=settings["web_server_port"])
+else:
+    from .config import settings

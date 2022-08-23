@@ -5,15 +5,16 @@ import json
 import pathlib
 
 config_file_name = "config.json"
+config_file_path = pathlib.Path(__file__).parent.absolute() / config_file_name
 default_settings = {"web_server_port": 8080, "android_device_ip": "192.168.1.1", "android_device_port": 5555}
 settings = None
 
-if not pathlib.Path(config_file_name).exists():
-    with open(config_file_name, "w", encoding="utf8") as file:
+if not config_file_path.exists():
+    with open(config_file_path, "w", encoding="utf8") as file:
         json.dump(default_settings, file, indent=4)
     settings = default_settings
 else:
-    with open(config_file_name, encoding="utf8") as file:
+    with open(config_file_path, encoding="utf8") as file:
         settings = json.load(file)
 
 if not set(settings.keys()).issuperset(default_settings.keys()):

@@ -43,6 +43,11 @@ another service running on that port.
 
 Once you've installed the Python requirements and set up your Android device, you should be ready to run the program.
 
+There are two ways to use nsotokengen. You can run it directly to start the web service and generate tokens by POSTing
+data to it. Or, you can import nsotokengen into your Python project as a package and call its functions directly. 
+
+### As a Web Service
+
 Run `nsotokengen.py`. It will verify that `adb` is available on the `PATH`, then it will use it to connect to your
 Android device, and then it will connect to the Frida server running on it. If anything doesn't work, it'll print an
 error message that should help you figure out what went wrong. 
@@ -66,6 +71,31 @@ You'll need to provide the following keys and values, all as strings:
 `POST` a JSON to the API and you'll get a JSON response back. If there's a key named `error`, something went wrong, and
 you should check the `reason` key to figure out what happened. Otherwise, there will be a single key named `f`, and
 that'll be your token.  
+
+### As a Package
+
+To use nsotokengen as a package in your Python project, start by importing it:
+
+```python
+import nsotokengen
+```
+
+Next, call `nsotokengen.setup()` to connect to the Android device. It's recommended that you print a message and wait
+for user confirmation before you call this so that users can start their Android devices and get everything set up
+first.
+
+```python
+nsotokengen.setup()
+```
+
+If anything goes wrong, a `RuntimeError` will be raised with a description of what happened.
+
+Once the setup is complete, you can now generate both types of tokens using the following functions:
+
+```python
+nsotokengen.gen_audio_h("token_goes_here", "timestamp_goes_here", "uuid_goes_here")
+nsotokengen.gen_audio_h2("token_goes_here", "timestamp_goes_here", "uuid_goes_here")
+```
 
 ## Other Interesting Projects
 
