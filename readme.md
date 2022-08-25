@@ -63,14 +63,16 @@ You'll need to provide the following keys and values, all as strings:
 
 |Key|Value|
 |:---|:---|
-|`timestamp`|Current Unix timestamp|
-|`request_id`|A random UUID|
 |`hash_method`|"1" for the first half of the authentication process and "2" for the second|
 |`token`|Your access token from earlier in the Nintendo authentication process|
 
+Due to changes in how the NSO authentication process works, nsotokengen will now handle generating the timestamp and
+request ID.
+
 `POST` a JSON to the API and you'll get a JSON response back. If there's a key named `error`, something went wrong, and
-you should check the `reason` key to figure out what happened. Otherwise, there will be a single key named `f`, and
-that'll be your token.  
+you should check the `reason` key to figure out what happened. Otherwise, there will be three keys, named `f`,
+`timestamp`, and `request_id`. Since nsotokengen now generates the timestamp and request ID, those values will be sent
+in the response, along with the `f` token, and you'll need to use those values when authenticating to NSO.
 
 ### As a Package
 
@@ -90,12 +92,21 @@ nsotokengen.setup()
 
 If anything goes wrong, a `RuntimeError` will be raised with a description of what happened.
 
+Sometimes, Frida isn't able to connect to the Frida server running on the Android device, even though it's running.
+nsotokengen will raise a `frida.ServerNotRunningError` if this occurs. For this reason, you might want to run
+`nsotokengen.setup()` a few times in a loop, just to make sure it's able to connect, as the connection issues usually
+work themselves out if you try to connect a few times.
+
 Once the setup is complete, you can now generate both types of tokens using the following functions:
 
 ```python
-nsotokengen.gen_audio_h("token_goes_here", "timestamp_goes_here", "uuid_goes_here")
-nsotokengen.gen_audio_h2("token_goes_here", "timestamp_goes_here", "uuid_goes_here")
+nsotokengen.gen_audio_h("token_goes_here")
+nsotokengen.gen_audio_h2("token_goes_here")
 ```
+
+You'll receive a dictionary containing the generated token, the timestamp, and the request ID. Since nsotokengen now
+generates the timestamp and request ID, you'll need to use the values returned from the functions when authenticating to
+NSO.
 
 ## Other Interesting Projects
 

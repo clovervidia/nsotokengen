@@ -7,20 +7,17 @@ import logging
 import shutil
 import subprocess
 import time
+import uuid
 
 routes = aiohttp.web.RouteTableDef()
 
+required_payload_keys = {"hash_method", "token"}
 expected_payload_keys = {"timestamp", "request_id", "hash_method", "token"}
 
 script = None
 
 
 def setup():
-    # Make sure setup isn't run twice
-    global script
-    if script:
-        pass
-
     # Check for adb on the PATH
     if not shutil.which("adb"):
         raise RuntimeError("Couldn't find adb executable. Is it installed and in your PATH?")
@@ -55,33 +52,46 @@ def setup():
             device.resume(pid)
         except frida.NotSupportedError:
             raise RuntimeError("Couldn't connect to the Frida server on the Android device. Is it running?")
+    except frida.ServerNotRunningError:
+        raise frida.ServerNotRunningError("Couldn't connect to the Frida server on the Android device. Is it running?")
     logging.info("NSO app launched.")
 
     # Attach to the NSO app and export functions from Frida that provide access to those two libvoip functions
     try:
         session = device.attach(pid)
     except frida.ServerNotRunningError:
-        raise RuntimeError("Couldn't connect to the Frida server on the Android device. Is it running?")
+        raise frida.ServerNotRunningError("Couldn't connect to the Frida server on the Android device. Is it running?")
 
+    global script
     script = session.create_script("""
     rpc.exports = {
-        genAudioH(token, timestamp, uuid) => {
+        genAudioH(token, timestamp, request_id) => {
             return new Promise(resolve => {
                 Java.perform(() => {
                     const libvoipjni = Java.use("com.nintendo.coral.core.services.voip.LibvoipJni");
                     var context = Java.use("android.app.ActivityThread").currentApplication().getApplicationContext();
                     libvoipjni.init(context);
-                    resolve(libvoipjni.genAudioH(token, timestamp, uuid));
+                    timestamp = !timestamp ? Date.now() : timestamp;
+                    resolve({
+                        "f": libvoipjni.genAudioH(token, timestamp.toString(), request_id),
+                        "timestamp": parseInt(timestamp),
+                        "request_id": request_id
+                    });
                 });
             });
         },
-        genAudioH2(token, timestamp, uuid) => {
+        genAudioH2(token, timestamp, request_id) => {
             return new Promise(resolve => {
                 Java.perform(() => {
                     const libvoipjni = Java.use("com.nintendo.coral.core.services.voip.LibvoipJni");
                     var context = Java.use("android.app.ActivityThread").currentApplication().getApplicationContext();
                     libvoipjni.init(context);
-                    resolve(libvoipjni.genAudioH2(token, timestamp, uuid));
+                    timestamp = !timestamp ? Date.now() : timestamp;
+                    resolve({
+                        "f": libvoipjni.genAudioH2(token, timestamp.toString(), request_id),
+                        "timestamp": parseInt(timestamp),
+                        "request_id": request_id
+                    });
                 });
             });
         }
@@ -90,16 +100,20 @@ def setup():
     script.load()
 
 
-def gen_audio_h(token: str, timestamp: str, uuid: str) -> str:
+def gen_audio_h(token: str, timestamp: str = None, request_id: str = None) -> str:
     if not script:
         raise RuntimeError("Run setup() to connect to the Android device before attempting to generate tokens")
-    return script.exports.gen_audio_h(str(token), str(timestamp), str(uuid))
+    if not request_id:
+        request_id = str(uuid.uuid4())
+    return script.exports.gen_audio_h(str(token), str(timestamp) if timestamp else None, str(request_id))
 
 
-def gen_audio_h2(token: str, timestamp: str, uuid: str) -> str:
+def gen_audio_h2(token: str, timestamp: str = None, request_id: str = None) -> str:
     if not script:
         raise RuntimeError("Run setup() to connect to the Android device before attempting to generate tokens")
-    return script.exports.gen_audio_h2(str(token), str(timestamp), str(uuid))
+    if not request_id:
+        request_id = str(uuid.uuid4())
+    return script.exports.gen_audio_h2(str(token), str(timestamp) if timestamp else None, str(request_id))
 
 
 @routes.post("/f")
@@ -116,9 +130,9 @@ async def generate_f_token(request: aiohttp.web.Request):
     except json.decoder.JSONDecodeError:
         return aiohttp.web.json_response({"error": True, "reason": "The given data was not valid JSON."}, status=400)
 
-    # Verify that the payload contains the expected keys
-    if not set(payload.keys()).issuperset(expected_payload_keys):
-        missing_keys = expected_payload_keys - set(payload.keys())
+    # Verify that the payload contains the required keys
+    if not set(payload.keys()).issuperset(required_payload_keys):
+        missing_keys = required_payload_keys - set(payload.keys())
         return aiohttp.web.json_response({"error": True, "reason": f"Value required for keys '{missing_keys}'."},
                                          status=400)
 
@@ -139,13 +153,20 @@ async def generate_f_token(request: aiohttp.web.Request):
         return aiohttp.web.json_response(
             {"error": True, "reason": f"Invalid value '{payload['hash_method']}' for key hash_method"}, status=400)
 
+    # Verify that the timestamp, if present, is a valid int
+    if payload.get("timestamp"):
+        try:
+            int(payload["timestamp"])
+        except ValueError:
+            return aiohttp.web.json_response({"error": True, "reason": "Something went wrong."}, status=500)
+
     # If everything else checked out, call the appropriate exported function from Frida
     if payload["hash_method"] == "1":
-        return aiohttp.web.json_response(
-            {"f": gen_audio_h(payload["token"], payload["timestamp"], payload["request_id"])})
+        return aiohttp.web.json_response(gen_audio_h(payload["token"], payload.get("timestamp"),
+                                                     payload.get("request_id")))
     else:
-        return aiohttp.web.json_response(
-            {"f": gen_audio_h2(payload["token"], payload["timestamp"], payload["request_id"])})
+        return aiohttp.web.json_response(gen_audio_h2(payload["token"], payload.get("timestamp"),
+                                                      payload.get("request_id")))
 
 
 if __name__ == "__main__":
