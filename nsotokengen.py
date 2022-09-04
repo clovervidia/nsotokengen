@@ -8,11 +8,24 @@ import shutil
 import subprocess
 import time
 import uuid
+from dataclasses import dataclass
+from typing import Dict, Sequence, Union
 
 routes = aiohttp.web.RouteTableDef()
 
-required_payload_keys = {"hash_method", "token"}
-expected_payload_keys = {"timestamp", "request_id", "hash_method", "token"}
+
+@dataclass
+class PayloadKey:
+    required: bool
+    allowed_types: Sequence[type]
+
+
+expected_payload_keys = {
+    "timestamp": PayloadKey(required=False, allowed_types=[str, int]),
+    "request_id": PayloadKey(required=False, allowed_types=[str]),
+    "hash_method": PayloadKey(required=True, allowed_types=[str, int]),
+    "token": PayloadKey(required=True, allowed_types=[str])
+}
 
 script = None
 
@@ -100,7 +113,7 @@ def setup():
     script.load()
 
 
-def gen_audio_h(token: str, timestamp: str = None, request_id: str = None) -> str:
+def gen_audio_h(token: str, timestamp: str = None, request_id: str = None) -> Dict[str, Union[str, int]]:
     if not script:
         raise RuntimeError("Run setup() to connect to the Android device before attempting to generate tokens")
     if not request_id:
@@ -108,7 +121,7 @@ def gen_audio_h(token: str, timestamp: str = None, request_id: str = None) -> st
     return script.exports.gen_audio_h(str(token), str(timestamp) if timestamp else None, str(request_id))
 
 
-def gen_audio_h2(token: str, timestamp: str = None, request_id: str = None) -> str:
+def gen_audio_h2(token: str, timestamp: str = None, request_id: str = None) -> Dict[str, Union[str, int]]:
     if not script:
         raise RuntimeError("Run setup() to connect to the Android device before attempting to generate tokens")
     if not request_id:
@@ -117,7 +130,7 @@ def gen_audio_h2(token: str, timestamp: str = None, request_id: str = None) -> s
 
 
 @routes.post("/f")
-async def generate_f_token(request: aiohttp.web.Request):
+async def generate_f_token(request: aiohttp.web.Request) -> aiohttp.web.json_response:
     # Verify that the response's Content-Type implies JSON data and that the body contains data
     if request.content_type != "application/json":
         return aiohttp.web.json_response({"error": True, "reason": "Unsupported Media Type"}, status=415)
@@ -131,34 +144,39 @@ async def generate_f_token(request: aiohttp.web.Request):
         return aiohttp.web.json_response({"error": True, "reason": "The given data was not valid JSON."}, status=400)
 
     # Verify that the payload contains the required keys
+    required_payload_keys = set(k for k, v in expected_payload_keys.items() if v.required)
     if not set(payload.keys()).issuperset(required_payload_keys):
         missing_keys = required_payload_keys - set(payload.keys())
         return aiohttp.web.json_response({"error": True, "reason": f"Value required for keys '{missing_keys}'."},
                                          status=400)
 
-    # Verify that the payload's values are all strings
+    # Verify that the payload's values are all the appropriate types
     for key, value in payload.items():
         if key not in expected_payload_keys:
             continue
-        if not isinstance(value, str):
-            return aiohttp.web.json_response(
-                {"error": True, "reason": f"Value of type 'String' required for key '{key}'."}, status=400)
+        for allowed_type in expected_payload_keys[key].allowed_types:
+            if isinstance(value, allowed_type):
+                break
+        else:
+            return aiohttp.web.json_response({"error": True, "reason": f"Invalid value {value} for key '{key}'."},
+                                             status=400)
 
     # Verify that the hash method is a valid int and set to either 1 or 2
     try:
         if int(payload["hash_method"]) not in (1, 2):
             return aiohttp.web.json_response(
-                {"error": True, "reason": f"Invalid value {payload['hash_method']} for key hash_method"}, status=400)
+                {"error": True, "reason": f"Invalid value {payload['hash_method']} for key 'hash_method'"}, status=400)
     except ValueError:
         return aiohttp.web.json_response(
-            {"error": True, "reason": f"Invalid value '{payload['hash_method']}' for key hash_method"}, status=400)
+            {"error": True, "reason": f"Invalid value {payload['hash_method']} for key 'hash_method'"}, status=400)
 
     # Verify that the timestamp, if present, is a valid int
     if payload.get("timestamp"):
         try:
             int(payload["timestamp"])
         except ValueError:
-            return aiohttp.web.json_response({"error": True, "reason": "Something went wrong."}, status=500)
+            return aiohttp.web.json_response(
+                {"error": True, "reason": f"Invalid value {payload['timestamp']} for key 'timestamp'"}, status=400)
 
     # If everything else checked out, call the appropriate exported function from Frida
     if payload["hash_method"] == "1":

@@ -59,11 +59,11 @@ requests.
 I modeled the API after the [imink API](https://github.com/JoneWang/imink/wiki/imink-API-Documentation), as it seemed to
 use a fairly sensible design. As such, the API expects JSON data to be POSTed to it, and it will respond with JSON data.
 
-You'll need to provide the following keys and values, all as strings:
+You'll need to provide the following keys and values:
 
 |Key|Value|
 |:---|:---|
-|`hash_method`|"1" for the first half of the authentication process and "2" for the second|
+|`hash_method`|`1` for the first half of the authentication process and `2` for the second|
 |`token`|Your access token from earlier in the Nintendo authentication process|
 
 Due to changes in how the NSO authentication process works, nsotokengen will now handle generating the timestamp and
