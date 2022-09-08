@@ -8,24 +8,9 @@ import shutil
 import subprocess
 import time
 import uuid
-from dataclasses import dataclass
-from typing import Dict, Sequence, Union
+from typing import Dict, Union
 
 routes = aiohttp.web.RouteTableDef()
-
-
-@dataclass
-class PayloadKey:
-    required: bool
-    allowed_types: Sequence[type]
-
-
-expected_payload_keys = {
-    "timestamp": PayloadKey(required=False, allowed_types=[str, int]),
-    "request_id": PayloadKey(required=False, allowed_types=[str]),
-    "hash_method": PayloadKey(required=True, allowed_types=[str, int]),
-    "token": PayloadKey(required=True, allowed_types=[str])
-}
 
 script = None
 
@@ -82,7 +67,7 @@ def setup():
             return new Promise(resolve => {
                 Java.perform(() => {
                     const libvoipjni = Java.use("com.nintendo.coral.core.services.voip.LibvoipJni");
-                    var context = Java.use("android.app.ActivityThread").currentApplication().getApplicationContext();
+                    const context = Java.use("android.app.ActivityThread").currentApplication().getApplicationContext();
                     libvoipjni.init(context);
                     timestamp = !timestamp ? Date.now() : timestamp;
                     resolve({
@@ -97,7 +82,7 @@ def setup():
             return new Promise(resolve => {
                 Java.perform(() => {
                     const libvoipjni = Java.use("com.nintendo.coral.core.services.voip.LibvoipJni");
-                    var context = Java.use("android.app.ActivityThread").currentApplication().getApplicationContext();
+                    const context = Java.use("android.app.ActivityThread").currentApplication().getApplicationContext();
                     libvoipjni.init(context);
                     timestamp = !timestamp ? Date.now() : timestamp;
                     resolve({
@@ -143,48 +128,49 @@ async def generate_f_token(request: aiohttp.web.Request) -> aiohttp.web.json_res
     except json.decoder.JSONDecodeError:
         return aiohttp.web.json_response({"error": True, "reason": "The given data was not valid JSON."}, status=400)
 
-    # Verify that the payload contains the required keys
-    required_payload_keys = set(k for k, v in expected_payload_keys.items() if v.required)
-    if not set(payload.keys()).issuperset(required_payload_keys):
-        missing_keys = required_payload_keys - set(payload.keys())
-        return aiohttp.web.json_response({"error": True, "reason": f"Value required for keys '{missing_keys}'."},
+    # Verify that the token is present and a string
+    token = payload.get("token")
+    if not token:
+        return aiohttp.web.json_response({"error": True, "reason": "Value required for key 'token'."}, status=400)
+    if not isinstance(payload["token"], str):
+        return aiohttp.web.json_response({"error": True, "reason": "Value of type 'String' required for key 'token'."},
                                          status=400)
 
-    # Verify that the payload's values are all the appropriate types
-    for key, value in payload.items():
-        if key not in expected_payload_keys:
-            continue
-        for allowed_type in expected_payload_keys[key].allowed_types:
-            if isinstance(value, allowed_type):
-                break
-        else:
-            return aiohttp.web.json_response({"error": True, "reason": f"Invalid value {value} for key '{key}'."},
-                                             status=400)
-
-    # Verify that the hash method is a valid int and set to either 1 or 2
-    try:
-        if int(payload["hash_method"]) not in (1, 2):
-            return aiohttp.web.json_response(
-                {"error": True, "reason": f"Invalid value {payload['hash_method']} for key 'hash_method'"}, status=400)
-    except ValueError:
+    # Verify that the request ID, if present, is a string
+    request_id = payload.get("request_id", payload.get("requestId"))
+    if request_id and not isinstance(request_id, str):
         return aiohttp.web.json_response(
-            {"error": True, "reason": f"Invalid value {payload['hash_method']} for key 'hash_method'"}, status=400)
+            {"error": True, "reason": "Value of type 'String' required for key 'requestId'."}, status=400)
 
-    # Verify that the timestamp, if present, is a valid int
-    if payload.get("timestamp"):
+    # Verify that the hash method is present, a valid int, and set to either 1 or 2
+    hash_method = payload.get("hash_method", payload.get("hashMethod"))
+    if hash_method:
         try:
-            int(payload["timestamp"])
+            hash_method = int(hash_method)
+            if hash_method not in {1, 2}:
+                return aiohttp.web.json_response(
+                    {"error": True, "reason": f"Invalid value {hash_method} for key 'hashMethod'"}, status=400)
         except ValueError:
             return aiohttp.web.json_response(
-                {"error": True, "reason": f"Invalid value {payload['timestamp']} for key 'timestamp'"}, status=400)
+                {"error": True, "reason": f"Invalid value {hash_method} for key 'hashMethod'"}, status=400)
+    else:
+        return aiohttp.web.json_response({"error": True, "reason": "Value required for key 'hashMethod'."}, status=400)
+
+    # Verify that the timestamp, if present, is a valid int
+    timestamp = payload.get("timestamp")
+    if timestamp:
+        try:
+            int(timestamp)
+        except (ValueError, TypeError):
+            return aiohttp.web.json_response(
+                {"error": True, "reason": f"Invalid value {timestamp} for key 'timestamp'"}, status=400)
+        timestamp = str(timestamp)
 
     # If everything else checked out, call the appropriate exported function from Frida
-    if payload["hash_method"] == "1":
-        return aiohttp.web.json_response(gen_audio_h(payload["token"], payload.get("timestamp"),
-                                                     payload.get("request_id")))
+    if hash_method == 1:
+        return aiohttp.web.json_response(gen_audio_h(token, timestamp, request_id))
     else:
-        return aiohttp.web.json_response(gen_audio_h2(payload["token"], payload.get("timestamp"),
-                                                      payload.get("request_id")))
+        return aiohttp.web.json_response(gen_audio_h2(token, timestamp, request_id))
 
 
 if __name__ == "__main__":

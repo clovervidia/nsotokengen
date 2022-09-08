@@ -63,7 +63,7 @@ You'll need to provide the following keys and values:
 
 |Key|Value|
 |:---|:---|
-|`hash_method`|`1` for the first half of the authentication process and `2` for the second|
+|`hashMethod` or `hash_method`|`1` for the first half of the authentication process and `2` for the second|
 |`token`|Your access token from earlier in the Nintendo authentication process|
 
 Due to changes in how the NSO authentication process works, nsotokengen will now handle generating the timestamp and
