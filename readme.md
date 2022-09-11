@@ -16,9 +16,12 @@ and an Android device in JS. I spent some time trying out Frida before, and I le
 NSO app, but I didn't have any ideas on how to turn  that into a service that programs could use to generate
 tokens until I saw nxapi's implementation. 
 
-If you're using splatnet2statink, with some minimal changes to `iksm.py`, you can use nsotokengen to generate f tokens
-as part of the authentication process if you want to generate your tokens locally. See the wiki for instructions on the
-specific changes to make. 
+If you're using [splatnet2statink](https://github.com/frozenpandaman/splatnet2statink), with some minimal changes to
+`iksm.py`, you can use nsotokengen to generate f tokens as part of the authentication process if you want to generate
+your tokens locally. See [the wiki](https://github.com/clovervidia/nsotokengen/wiki/splatnet2statink) for instructions
+on the specific changes to make.  
+The same goes for [s3s](https://github.com/frozenpandaman/s3s), but it's even easier because you just have to change a
+setting in the config file. Check [the wiki](https://github.com/clovervidia/nsotokengen/wiki/s3s) for more information.
 
 ## Setup
 
@@ -120,3 +123,8 @@ use on your phone, like SplatNet 2 and NookLink, but right on your computer. You
 provides, like your battle results and map schedules. The creator of the app stood up a web service to generate f tokens
 and was gracious enough to provide public API documentation for its use. If you don't want to set up nxapi or
 nsotokengen locally, you can use the imink API to generate f tokens for your program.
+
+[splatnet2statink](https://github.com/frozenpandaman/splatnet2statink) is a project I worked on that can download your
+Splatoon 2 battle logs from SplatNet 2 and upload them to [stat.ink](https://stat.ink) to track your battle stats.   
+[s3s](https://github.com/frozenpandaman/s3s) is the successor to splatnet2statink that works with SplatNet 3 to track
+your Splatoon 3 battles.
