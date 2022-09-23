@@ -20,6 +20,9 @@ def setup():
     if not shutil.which("adb"):
         raise RuntimeError("Couldn't find adb executable. Is it installed and in your PATH?")
 
+    # Clear existing adb connections
+    subprocess.run(["adb", "disconnect"], stdout=subprocess.DEVNULL)
+
     # Connect to the Android device using adb
     logging.info("Connecting to the Android device using adb...")
     output = subprocess.run(["adb", "connect", f'{settings["android_device_ip"]}:{settings["android_device_port"]}'],
@@ -27,6 +30,22 @@ def setup():
     if "connected" not in output.stdout:
         raise RuntimeError("Couldn't connect to the Android device. Double-check the IP address in config.json.")
     logging.info("Connected.")
+
+    # Restart adb with root permissions
+    subprocess.run(["adb", "root"], stdout=subprocess.DEVNULL)
+
+    # Reconnect to the Android device
+    subprocess.run(["adb", "connect", f'{settings["android_device_ip"]}:{settings["android_device_port"]}'],
+                   stdout=subprocess.DEVNULL)
+
+    # Push the Frida startup script to the Android device
+    subprocess.run(["adb", "push", "start-frida.sh", "/data/local/tmp/"], stderr=subprocess.DEVNULL)
+    subprocess.run(["adb", "shell", "chmod", "755", "/data/local/tmp/start-frida.sh"], stderr=subprocess.DEVNULL)
+
+    # Start the Frida server
+    logging.info("Starting the Frida server...")
+    subprocess.run(["adb", "shell", "/data/local/tmp/start-frida.sh"], stdout=subprocess.DEVNULL)
+    logging.info("Frida server started.")
 
     # Locate the Android device. If it's connected to adb, it will appear as a USB device to Frida.
     logging.info("Searching for Android device...")

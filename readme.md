@@ -31,7 +31,9 @@ communicate with it. You'll also need to install the Frida server and the NSO ap
 Follow these instructions to set up Android x86 as a VM on your computer if you don't have a physical rooted device to
 use: https://www.android-x86.org/installhowto.html
 
-Then, follow these instructions to install the Frida server on your Android device: https://frida.re/docs/android/
+Then, follow these instructions to install the Frida server on your Android device: https://frida.re/docs/android/  
+nsotokengen will attempt to start the Frida server with the assumption that you placed it at
+`/data/local/tmp/frida-server` as per the Frida docs.
 
 If you don't have `adb`, you can download it from here: https://developer.android.com/studio/releases/platform-tools  
 Make sure you add it to your system's `PATH` variable, as `nsotokengen` will call it to connect to your Android device. 
@@ -54,6 +56,10 @@ data to it. Or, you can import nsotokengen into your Python project as a package
 Run `nsotokengen.py`. It will verify that `adb` is available on the `PATH`, then it will use it to connect to your
 Android device, and then it will connect to the Frida server running on it. If anything doesn't work, it'll print an
 error message that should help you figure out what went wrong. 
+
+Sometimes, the Frida server won't start on the Android device, and nsotokengen will raise a
+`frida.ServerNotRunningError` exception since it can't connect to it. If this happens, try restarting nsotokengen. It
+will usually work after a few tries. If it still can't connect, try restarting your Android device.
 
 To test out the web service once it's running, use `curl` or a similar tool to hit `localhost:8080/f`. You should get
 back a `405: Method Not Allowed` error. That's just because the endpoint on the web service only responds to `POST`
